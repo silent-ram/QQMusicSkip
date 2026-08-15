@@ -1,0 +1,36 @@
+name: Bug 报告
+description: 报告歌曲识别、规则、歌词或界面问题
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 请说明实际行为和预期行为。
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: "1. 打开……\n2. 播放……\n3. 看到……"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: 手机型号和 Android 版本
+    validations:
+      required: true
+  - type: input
+    id: qqmusic
+    attributes:
+      label: QQ 音乐版本
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 诊断日志
+      description: 请删除账号、播放列表名称等隐私内容。
