@@ -150,11 +150,6 @@ class QQMusicListener : NotificationListenerService() {
             if (payplay != null) {
                 SongMemory.record(applicationContext, parsedTitle, parsedArtist, payplay, extractAlbum(text))
             }
-            if (AppSettings.lyrics(applicationContext)) {
-                val lyric = currentSongMid?.let { fetchLyrics(it) }
-                if (!lyric.isNullOrBlank() && lastKey == key) Status.currentLyrics = lyric
-            }
-
             // 检查用户标记（优先于 payplay 规则）
             val action = SongMemory.getAction(applicationContext, parsedTitle, parsedArtist)
             when (action) {
@@ -382,19 +377,6 @@ class QQMusicListener : NotificationListenerService() {
             Log.e(TAG, "API error: ${e.message}")
             null
         }
-    }
-
-    private fun fetchLyrics(mid: String): String? = try {
-        val conn = URL("https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric.fcg?songmid=$mid&format=json").openConnection() as HttpsURLConnection
-        conn.connectTimeout = 4000; conn.readTimeout = 4000
-        conn.setRequestProperty("Referer", "https://y.qq.com/")
-        val raw = conn.inputStream.bufferedReader().use { it.readText() }
-        val jsonText = raw.substringAfter("(", raw).substringBeforeLast(")", raw)
-        val lyric = JSONObject(jsonText).optString("lyric").replace("\\n", "\n")
-        lyric.takeIf { it.isNotBlank() }
-    } catch (e: Exception) {
-        Log.w(TAG, "歌词获取失败: ${e.message}")
-        null
     }
 
     /**

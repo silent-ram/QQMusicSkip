@@ -6,7 +6,7 @@
 QQ 音乐通知
   -> QQMusicListener
   -> 通知字段与 MediaSession 解析
-  -> 付费状态/歌词查询
+  -> 付费状态查询 / 通知歌词提取
   -> 单曲规则与全局策略
   -> MediaController 跳歌
   -> Status / SongMemory / DiagnosticsStore
