@@ -1,16 +1,27 @@
 package com.qqmusicskip.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -38,7 +49,6 @@ fun GlassTopBar(
             actionIconContentColor = onBg,
         ),
         modifier = modifier.drawBehind {
-            // 底部 1px 渐变描边（中间实两端淡）
             drawLine(
                 brush = Brush.horizontalGradient(
                     colors = listOf(
@@ -56,9 +66,10 @@ fun GlassTopBar(
 }
 
 /**
- * 玻璃化底栏：透明背景 + 顶部 1px 渐变描边，selected 项使用发光指示器。
+ * 玻璃化底栏：自实现的 Row + 顶部 1px 渐变描边。
  *
- * 调用方直接传入 NavigationBarItem 列表。
+ * 不用 NavigationBar / NavigationBarItem 是为了避开 Material 3 BOM 2026 的 unresolved
+ * 引用问题，同时给玻璃面板更精准的视觉控制。
  */
 @Composable
 fun GlassBottomBar(
@@ -66,30 +77,35 @@ fun GlassBottomBar(
     content: @Composable RowScope.() -> Unit,
 ) {
     val onBg = MaterialTheme.colorScheme.onBackground
-    NavigationBar(
-        containerColor = MaterialTheme.colorScheme.surface,
-        tonalElevation = 0.dp,
-        modifier = modifier.drawBehind {
-            // 顶部 1px 渐变描边
-            drawLine(
-                brush = Brush.horizontalGradient(
-                    colors = listOf(
-                        Color.Transparent,
-                        onBg.copy(alpha = 0.18f),
-                        Color.Transparent,
+    val surface = MaterialTheme.colorScheme.surface
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(80.dp)
+            .background(surface)
+            .drawBehind {
+                drawLine(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            onBg.copy(alpha = 0.18f),
+                            Color.Transparent,
+                        ),
                     ),
-                ),
-                start = Offset(0f, 0f),
-                end = Offset(size.width, 0f),
-                strokeWidth = 1.dp.toPx(),
-            )
-        },
+                    start = Offset(0f, 0f),
+                    end = Offset(size.width, 0f),
+                    strokeWidth = 1.dp.toPx(),
+                )
+            }
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
         content = content,
     )
 }
 
 /**
- * 玻璃化底部导航项：selected 时使用主色 + 容器色作为发光指示器。
+ * 玻璃化底部导航项：selected 时使用主色容器作为发光指示器背景。
  */
 @Composable
 fun GlassNavigationBarItem(
@@ -99,17 +115,29 @@ fun GlassNavigationBarItem(
     label: String,
 ) {
     val cs = MaterialTheme.colorScheme
-    NavigationBarItem(
-        selected = selected,
-        onClick = onClick,
-        icon = icon,
-        label = { Text(label, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal) },
-        colors = NavigationBarItemDefaults.colors(
-            selectedIconColor = cs.onPrimaryContainer,
-            selectedTextColor = cs.primary,
-            indicatorColor = cs.primaryContainer,
-            unselectedIconColor = cs.onSurfaceVariant,
-            unselectedTextColor = cs.onSurfaceVariant,
-        ),
-    )
+    val indicatorColor = if (selected) cs.primaryContainer else Color.Transparent
+    val contentColor = if (selected) cs.primary else cs.onSurfaceVariant
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(indicatorColor)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Box(modifier = Modifier.padding(bottom = 2.dp)) {
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.material3.LocalContentColor provides contentColor,
+            ) {
+                icon()
+            }
+        }
+        Text(
+            text = label,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = contentColor,
+            style = MaterialTheme.typography.labelMedium,
+        )
+    }
 }
