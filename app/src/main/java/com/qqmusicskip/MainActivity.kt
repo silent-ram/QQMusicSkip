@@ -287,14 +287,14 @@ private fun StatusBanner(listener: Boolean, enabled: Boolean, dark: Boolean) {
     GlassCard(
         modifier = Modifier.fillMaxWidth(),
         thickness = GlassThickness.Small,
-        cornerRadius = 16.dp,
+        cornerRadius = 14.dp,
         dark = dark,
-        contentPadding = 14.dp,
+        contentPadding = 12.dp,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(if (ok) Icons.Default.CheckCircle else Icons.Default.Warning, null, tint = accent)
             Spacer(Modifier.width(10.dp))
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     if (ok) "自动跳过正在运行"
                     else if (!listener) "需要开启通知读取权限"
@@ -303,6 +303,8 @@ private fun StatusBanner(listener: Boolean, enabled: Boolean, dark: Boolean) {
                     fontWeight = FontWeight.Medium,
                     style = MaterialTheme.typography.bodyMedium,
                     color = accent,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     if (ok) "正在监听 QQ 音乐通知"
@@ -310,6 +312,8 @@ private fun StatusBanner(listener: Boolean, enabled: Boolean, dark: Boolean) {
                     else "可在设置页进行调整",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }

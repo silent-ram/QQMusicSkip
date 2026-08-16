@@ -6,7 +6,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-private val Default = FontFamily.Default
+// 显式指定 SansSerif，避免 OEM 全局字体替换（华为/小米会把 sans-serif 改成楷体/手写体）
+// 影响整个 App 的字体显示一致性
+private val Default = FontFamily.SansSerif
 
 val Typography = Typography(
     displayLarge   = TextStyle(fontFamily = Default, fontWeight = FontWeight.SemiBold, fontSize = 36.sp, lineHeight = 44.sp),

@@ -10,11 +10,9 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
@@ -41,7 +39,7 @@ fun GlassTopBar(
     val onBg = MaterialTheme.colorScheme.onBackground
     CenterAlignedTopAppBar(
         title = { Text(title, fontWeight = FontWeight.SemiBold) },
-        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+        colors = TopAppBarDefaults.topAppBarColors(
             containerColor = Color.Transparent,
             scrolledContainerColor = Color.Transparent,
             titleContentColor = onBg,
@@ -68,6 +66,7 @@ fun GlassTopBar(
 /**
  * 玻璃化底栏：自实现的 Row + 顶部 1px 渐变描边。
  *
+ * 用 Row + weight(1f) 等宽分配，避免 SpaceEvenly 在 4 个 item 时把第一个/最后一个推出容器。
  * 不用 NavigationBar / NavigationBarItem 是为了避开 Material 3 BOM 2026 的 unresolved
  * 引用问题，同时给玻璃面板更精准的视觉控制。
  */
@@ -81,7 +80,7 @@ fun GlassBottomBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(80.dp)
+            .height(72.dp)
             .background(surface)
             .drawBehind {
                 drawLine(
@@ -97,8 +96,8 @@ fun GlassBottomBar(
                     strokeWidth = 1.dp.toPx(),
                 )
             }
-            .padding(horizontal = 8.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
+            .padding(horizontal = 4.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically,
         content = content,
     )
@@ -106,23 +105,28 @@ fun GlassBottomBar(
 
 /**
  * 玻璃化底部导航项：selected 时使用主色容器作为发光指示器背景。
+ *
+ * 关键修正：内边距减小（8dp 而不是 16dp），避免 4 个 item 总宽度超过容器。
+ * 调用方需在外层 GlassBottomBar 内使用 weight(1f)。
  */
 @Composable
-fun GlassNavigationBarItem(
+fun RowScope.GlassNavigationBarItem(
     selected: Boolean,
     onClick: () -> Unit,
     icon: @Composable () -> Unit,
     label: String,
+    modifier: Modifier = Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
     val indicatorColor = if (selected) cs.primaryContainer else Color.Transparent
     val contentColor = if (selected) cs.primary else cs.onSurfaceVariant
     Column(
-        modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
+        modifier = modifier
+            .weight(1f)
+            .clip(RoundedCornerShape(16.dp))
             .background(indicatorColor)
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 4.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -138,6 +142,7 @@ fun GlassNavigationBarItem(
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             color = contentColor,
             style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
         )
     }
 }

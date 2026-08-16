@@ -24,10 +24,10 @@ private val LightScheme = lightColorScheme(
     onBackground = InkDark,
     surface = GlassSurfaceLight,
     onSurface = InkDark,
-    surfaceVariant = Color.White.copy(alpha = 0.35f),
+    surfaceVariant = Color(0x59EAF1FF),     // 35% 淡蓝白
     onSurfaceVariant = InkSoft,
     outline = GlassOutlineLight,
-    outlineVariant = Color.White.copy(alpha = 0.3f),
+    outlineVariant = Color(0x4DEAF1FF),     // 30% 淡蓝白
     error = Color(0xFFE55C5C),
     onError = Color.White,
     errorContainer = Color(0xFFFCE4E4),
@@ -51,10 +51,10 @@ private val DarkScheme = darkColorScheme(
     onBackground = InkLight,
     surface = GlassSurfaceDark,
     onSurface = InkLight,
-    surfaceVariant = Color.Black.copy(alpha = 0.35f),
+    surfaceVariant = Color(0x592A2840),    // 35% 深蓝紫
     onSurfaceVariant = InkLightSoft,
     outline = GlassOutlineDark,
-    outlineVariant = Color.White.copy(alpha = 0.1f),
+    outlineVariant = Color(0x3D2A2840),   // 24% 深蓝紫
     error = Color(0xFFFF8A80),
     onError = Color(0xFF601410),
     errorContainer = Color(0xFF6B1F1F),
