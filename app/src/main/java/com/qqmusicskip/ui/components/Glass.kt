@@ -8,19 +8,53 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.qqmusicskip.ui.theme.GlassOutlineDark
 import com.qqmusicskip.ui.theme.GlassOutlineLight
 import com.qqmusicskip.ui.theme.GlassTintDark
 import com.qqmusicskip.ui.theme.GlassTintLight
+import androidx.compose.runtime.staticCompositionLocalOf
+import com.kyant.backdrop.backdrops.LayerBackdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
+import com.kyant.shapes.RoundedRectangle
+
+val LocalLiquidBackdrop = staticCompositionLocalOf<LayerBackdrop?> { null }
+
+@Composable
+fun LiquidGlassProvider(
+    backdrop: LayerBackdrop,
+    content: @Composable () -> Unit,
+) {
+    CompositionLocalProvider(LocalLiquidBackdrop provides backdrop, content = content)
+}
 
 /**
  * 玻璃面板厚度档位。
@@ -88,12 +122,75 @@ fun GlassCard(
     dark: Boolean = false,
     elevation: Dp = 4.dp,
     contentPadding: Dp = 16.dp,
+    onClick: (() -> Unit)? = null,
+    enabled: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Column(
-        modifier = modifier
-            .glassify(thickness, cornerRadius, dark, elevation)
-            .padding(contentPadding),
-        content = content,
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    var passivePressed by remember { mutableStateOf(false) }
+    val feedbackScale by animateFloatAsState(
+        targetValue = if ((pressed || passivePressed) && enabled) 0.965f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
+        label = "glass-card-press",
     )
+    val interactiveModifier = Modifier
+        .graphicsLayer {
+            scaleX = feedbackScale
+            scaleY = feedbackScale
+            alpha = if (enabled) 1f else 0.62f
+        }
+        .then(if (onClick != null) {
+            Modifier.clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                enabled = enabled,
+                onClick = onClick,
+            )
+        } else {
+            // Non-clickable cards still provide tactile compression while allowing
+            // the parent scroll container to keep handling the gesture.
+            Modifier.pointerInput(enabled) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    passivePressed = true
+                    waitForUpOrCancellation()
+                    passivePressed = false
+                }
+            }
+        })
+    val backdrop = LocalLiquidBackdrop.current
+    val surfaceAlpha = when (thickness) {
+        GlassThickness.Default -> if (dark) 0.28f else 0.34f
+        GlassThickness.Thick -> if (dark) 0.42f else 0.50f
+        GlassThickness.Small -> if (dark) 0.20f else 0.27f
+    }
+    if (backdrop == null) {
+        Column(
+            modifier = modifier
+                .then(interactiveModifier)
+                .glassify(thickness, cornerRadius, dark, elevation)
+                .padding(contentPadding),
+            content = content,
+        )
+    } else {
+        Column(
+            modifier = modifier
+                .then(interactiveModifier)
+                .drawBackdrop(
+                    backdrop = backdrop,
+                    shape = { RoundedRectangle(cornerRadius) },
+                    effects = {
+                        vibrancy()
+                        blur(if (thickness == GlassThickness.Thick) 8.dp.toPx() else 4.dp.toPx())
+                        lens(cornerRadius.toPx() * 0.6f, cornerRadius.toPx() * 1.2f)
+                    },
+                    onDrawSurface = {
+                        drawRect((if (dark) GlassTintDark else GlassTintLight).copy(alpha = surfaceAlpha))
+                    },
+                )
+                .padding(contentPadding),
+            content = content,
+        )
+    }
 }

@@ -26,6 +26,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
+import com.kyant.shapes.RoundedRectangle
 
 /**
  * 玻璃化顶栏：透明背景 + 底部 1px 渐变描边，标题居中、SemiBold 字重。
@@ -77,11 +82,24 @@ fun GlassBottomBar(
 ) {
     val onBg = MaterialTheme.colorScheme.onBackground
     val surface = MaterialTheme.colorScheme.surface
+    val backdrop = LocalLiquidBackdrop.current
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(72.dp)
-            .background(surface)
+        modifier = modifier.fillMaxWidth().height(72.dp).then(
+            if (backdrop == null) {
+                Modifier.background(surface)
+            } else {
+                Modifier.drawBackdrop(
+                    backdrop = backdrop,
+                    shape = { RoundedRectangle(24.dp) },
+                    effects = {
+                        vibrancy()
+                        blur(8.dp.toPx())
+                        lens(12.dp.toPx(), 24.dp.toPx())
+                    },
+                    onDrawSurface = { drawRect(surface.copy(alpha = 0.36f)) },
+                )
+            },
+        )
             .drawBehind {
                 drawLine(
                     brush = Brush.horizontalGradient(

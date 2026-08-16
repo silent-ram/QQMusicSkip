@@ -7,6 +7,8 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -49,8 +51,8 @@ fun AnimatedBackground(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 8000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
+            animation = tween(durationMillis = 48_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
         ),
         label = "phase",
     )
@@ -61,18 +63,30 @@ fun AnimatedBackground(
         // 1. 底层渐变（淡蓝→薄荷绿 / 深紫蓝→深青绿 + 彩色晕染呼吸）
         BaseGradientLayer(phase = phase, dark = dark, modifier = Modifier.fillMaxSize())
 
-        // 2. 中层封面（如有）—— blur 50dp + alpha 0.65 让它不喧宾夺主
-        if (coverImage != null) {
-            Image(
-                bitmap = coverImage,
-                contentDescription = null,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .blur(50.dp)
-                    .alpha(0.65f)
-                    .graphicsLayer { rotationZ = phase * 5f - 2.5f },
-                contentScale = ContentScale.Crop,
-            )
+        // 2. 中层封面缓慢交叉淡化，切歌时不会瞬间换底图。
+        Crossfade(
+            targetState = coverImage,
+            modifier = Modifier.fillMaxSize(),
+            animationSpec = tween(durationMillis = 1_600),
+            label = "background-cover-fade",
+        ) { image ->
+            if (image != null) {
+                Image(
+                    bitmap = image,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .blur(42.dp)
+                        .alpha(0.46f)
+                        .graphicsLayer {
+                            scaleX = 1.04f
+                            scaleY = 1.04f
+                            translationX = kotlin.math.sin(phase * (2f * Math.PI)).toFloat() * 8f
+                            translationY = kotlin.math.cos(phase * (2f * Math.PI)).toFloat() * 5f
+                        },
+                    contentScale = ContentScale.Crop,
+                )
+            }
         }
 
         // 3. 顶层降饱和蒙版（关键：薄一点，让主色调透出来）
@@ -99,33 +113,26 @@ private fun BaseGradientLayer(phase: Float, dark: Boolean, modifier: Modifier = 
     val glowRight = if (dark) Color(0x9986E5BB) else Color(0x99C8F0E0)
     val glowPurple = if (dark) Color(0x66CFA8F5) else Color(0x77B18CE8)
 
-    Box(
-        modifier = modifier
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(baseTop, baseBottom),
-                ),
-            )
-            .background(
-                brush = Brush.radialGradient(
-                    colors = listOf(glowLeft, Color.Transparent),
-                    center = Offset(200f + phase * 240f, 280f + phase * 120f),
-                    radius = 900f,
-                ),
-            )
-            .background(
-                brush = Brush.radialGradient(
-                    colors = listOf(glowRight, Color.Transparent),
-                    center = Offset(900f - phase * 200f, 1400f - phase * 100f),
-                    radius = 1100f,
-                ),
-            )
-            .background(
-                brush = Brush.radialGradient(
-                    colors = listOf(glowPurple, Color.Transparent),
-                    center = Offset(500f + phase * 160f, 900f - phase * 80f),
-                    radius = 700f,
-                ),
-            ),
-    )
+    Canvas(modifier = modifier.fillMaxSize()) {
+        // 一个 Canvas 统一绘制全局背景，减少多层 Box/background 的重组和合成开销。
+        drawRect(Brush.verticalGradient(listOf(baseTop, baseBottom)))
+        val w = size.width
+        val h = size.height
+        val orbit = phase * (2f * Math.PI)
+        drawCircle(
+            brush = Brush.radialGradient(listOf(glowLeft, Color.Transparent)),
+            radius = maxOf(w, h) * 0.72f,
+            center = Offset(w * 0.18f + kotlin.math.sin(orbit).toFloat() * w * 0.08f, h * 0.18f),
+        )
+        drawCircle(
+            brush = Brush.radialGradient(listOf(glowRight, Color.Transparent)),
+            radius = maxOf(w, h) * 0.82f,
+            center = Offset(w * 0.80f + kotlin.math.cos(orbit).toFloat() * w * 0.06f, h * 0.72f),
+        )
+        drawCircle(
+            brush = Brush.radialGradient(listOf(glowPurple, Color.Transparent)),
+            radius = maxOf(w, h) * 0.54f,
+            center = Offset(w * 0.52f, h * 0.48f + kotlin.math.sin(orbit).toFloat() * h * 0.04f),
+        )
+    }
 }

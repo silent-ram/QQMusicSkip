@@ -5,6 +5,7 @@ import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.PlaybackState
 import android.os.SystemClock
+import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.content.ComponentName
@@ -12,12 +13,18 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
+import androidx.core.os.BundleCompat
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.net.URL
 import java.net.URLEncoder
@@ -35,18 +42,24 @@ import javax.net.ssl.HttpsURLConnection
 class QQMusicListener : NotificationListenerService() {
 
     private val scope = CoroutineScope(Dispatchers.IO)
+    private val notificationMutex = Mutex()
     private var lastKey: String? = null
     private val payplayCache = mutableMapOf<String, Int>()
     private var currentSongId: Long? = null  // 从 MediaSession 拿
     private var currentSongMid: String? = null  // 缓存 mid，避免重复搜索
     private var currentToken: android.media.session.MediaSession.Token? = null  // 缓存 token 切歌用
+    private var currentArtworkKey: String? = null
+    private var artworkRefreshKey: String? = null
+    private var artworkRefreshJob: Job? = null
 
     override fun onListenerConnected() {
         super.onListenerConnected()
         Status.listenerConnected = true
         Status.lastListenerHeartbeat = System.currentTimeMillis()
         Log.d(TAG, "通知监听服务已连接")
-        DiagnosticsStore.add(applicationContext, "监听服务", "已连接，开始扫描当前通知")
+        scope.launch {
+            DiagnosticsStore.add(applicationContext, "监听服务", "已连接，开始扫描当前通知")
+        }
         PlaybackControls.previous = { control { skipToPrevious() } }
         PlaybackControls.next = { control { skipToNext() } }
         PlaybackControls.playPause = { togglePlayback() }
@@ -69,6 +82,7 @@ class QQMusicListener : NotificationListenerService() {
     }
 
     override fun onDestroy() {
+        artworkRefreshJob?.cancel()
         Status.listenerConnected = false
         super.onDestroy()
     }
@@ -76,7 +90,17 @@ class QQMusicListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         if (sbn?.packageName != "com.tencent.qqmusic") return
 
-        val extras = sbn.notification.extras
+        // NotificationListenerService 通常在主线程回调。只复制轻量数据，
+        // 解析 MediaSession、封面和诊断 JSON 全部放到串行 IO 队列。
+        val extras = Bundle(sbn.notification.extras)
+        scope.launch {
+            notificationMutex.withLock {
+                processNotification(extras)
+            }
+        }
+    }
+
+    private fun processNotification(extras: Bundle) {
         val title = extras.getString(Notification.EXTRA_TITLE) ?: ""
         val text = extras.getString(Notification.EXTRA_TEXT)
         val notificationLyrics = extractNotificationLyrics(extras, title, text)
@@ -94,8 +118,10 @@ class QQMusicListener : NotificationListenerService() {
         }
 
         // 拿到 MediaSession token（不管 DEBUG_DUMP）
-        val token = extras.getParcelable<android.media.session.MediaSession.Token>(
-            Notification.EXTRA_MEDIA_SESSION
+        val token = BundleCompat.getParcelable(
+            extras,
+            Notification.EXTRA_MEDIA_SESSION,
+            android.media.session.MediaSession.Token::class.java,
         )
         if (token != null) {
             currentToken = token
@@ -103,7 +129,8 @@ class QQMusicListener : NotificationListenerService() {
             try {
                 val controller = android.media.session.MediaController(this, token)
                 currentSongId = controller.metadata?.description?.mediaId?.toLongOrNull()
-                updatePlaybackStatus(controller)
+                val artworkKey = updatePlaybackStatus(controller)
+                scheduleArtworkRefresh(token, artworkKey)
             } catch (e: Exception) {
                 Log.w(TAG, "MediaController 取 songid 失败: ${e.message}")
             }
@@ -140,16 +167,15 @@ class QQMusicListener : NotificationListenerService() {
             }
             if (payplay == null) Status.totalFailed++
 
+            // 网络失败或接口返回未知时也写入历史，使用 -1 供“未知”筛选。
+            SongMemory.record(applicationContext, parsedTitle, parsedArtist, payplay ?: -1, extractAlbum(text))
+
             if (!AppSettings.enabled(applicationContext)) {
                 Log.d(TAG, "自动跳过已关闭")
                 Status.update(parsedTitle, parsedArtist, payplay, album = extractAlbum(text))
                 return@launch
             }
 
-            // 记录到记忆（如果 payplay 已知）
-            if (payplay != null) {
-                SongMemory.record(applicationContext, parsedTitle, parsedArtist, payplay, extractAlbum(text))
-            }
             // 检查用户标记（优先于 payplay 规则）
             val action = SongMemory.getAction(applicationContext, parsedTitle, parsedArtist)
             when (action) {
@@ -193,7 +219,7 @@ class QQMusicListener : NotificationListenerService() {
     private fun dumpExtras(extras: android.os.Bundle) {
         Log.d(TAG, "=== Extras Dump ===")
         for (key in extras.keySet()) {
-            val value = try { extras.get(key) } catch (e: Exception) { "<error>" }
+            val value = try { readExtraForDiagnostics(extras, key) } catch (e: Exception) { "<error>" }
             val v = when (value) {
                 is android.os.Bundle -> "[Bundle keys=${value.keySet()}]"
                 is Array<*> -> "[Array size=${value.size} first=${value.firstOrNull()}]"
@@ -202,6 +228,16 @@ class QQMusicListener : NotificationListenerService() {
             Log.d(TAG, "  $key = $v")
         }
         Log.d(TAG, "===================")
+    }
+
+    @Suppress("DEPRECATION")
+    private fun readExtraForDiagnostics(extras: android.os.Bundle, key: String): Any? {
+        return when {
+            extras.getString(key) != null -> extras.getString(key)
+            extras.getCharSequence(key) != null -> extras.getCharSequence(key)
+            extras.getBundle(key) != null -> extras.getBundle(key)
+            else -> "<${extras.get(key)?.javaClass?.simpleName ?: "unknown"}>"
+        }
     }
 
     /**
@@ -270,7 +306,7 @@ class QQMusicListener : NotificationListenerService() {
             add(extras.getString(Notification.EXTRA_SUB_TEXT))
             for (key in extras.keySet()) {
                 if (key.contains("lyric", true) || key.contains("lrc", true)) {
-                    add(extras.get(key)?.toString())
+                    add(extras.getString(key) ?: extras.getCharSequence(key)?.toString())
                 }
             }
         }
@@ -475,13 +511,97 @@ class QQMusicListener : NotificationListenerService() {
         else controller.transportControls.play()
     }
 
-    private fun updatePlaybackStatus(controller: android.media.session.MediaController) {
+    /**
+     * 读取播放状态和封面。QQ 音乐可能先返回空图/占位图，之后才把真实封面
+     * 写入同一个 MediaSession，所以不能只按 mediaId 去重。
+     */
+    private fun updatePlaybackStatus(controller: android.media.session.MediaController): String? {
         val metadata = controller.metadata
         Status.duration = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
         Status.position = controller.playbackState?.position ?: 0L
         Status.isPlaying = controller.playbackState?.state == PlaybackState.STATE_PLAYING
-        Status.cover = metadata?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+        val artwork = metadata?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
             ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_ART)
+        val artworkKey = artworkIdentity(metadata, artwork)
+        artworkKey?.let { applyArtwork(it, artwork) }
+        return artworkKey
+    }
+
+    private fun artworkIdentity(metadata: MediaMetadata?, artwork: android.graphics.Bitmap?): String? {
+        if (metadata == null) return null
+        val mediaId = metadata.description?.mediaId.orEmpty()
+        val artworkUri = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI).orEmpty()
+        return if (mediaId.isNotBlank()) {
+            "id:$mediaId|uri:$artworkUri"
+        } else {
+            listOf(
+                metadata.getString(MediaMetadata.METADATA_KEY_ARTIST).orEmpty(),
+                metadata.getString(MediaMetadata.METADATA_KEY_ALBUM).orEmpty(),
+                metadata.getLong(MediaMetadata.METADATA_KEY_DURATION).toString(),
+                artwork?.width.toString(),
+                artwork?.height.toString(),
+            ).joinToString("|") + "|uri:$artworkUri"
+        }
+    }
+
+    private fun applyArtwork(key: String, artwork: android.graphics.Bitmap?): Boolean {
+        val identityChanged = key != currentArtworkKey
+        val imageChanged = when {
+            artwork == null -> identityChanged && Status.cover != null
+            Status.cover == null -> true
+            Status.cover === artwork -> false
+            else -> runCatching { !Status.cover!!.sameAs(artwork) }.getOrDefault(true)
+        }
+
+        if (identityChanged) currentArtworkKey = key
+        // 歌曲切换且暂时没有封面时清掉旧封面；同一歌曲短暂拿不到图时则保留
+        // 当前封面，等待下面的延迟重试，避免播放页瞬间闪空。
+        if (imageChanged && (artwork != null || identityChanged)) {
+            Status.cover = artwork
+        }
+        return imageChanged && artwork != null
+    }
+
+    private fun scheduleArtworkRefresh(
+        token: android.media.session.MediaSession.Token,
+        artworkKey: String?,
+    ) {
+        val refreshKey = artworkKey ?: "session:${token.hashCode()}"
+        if (refreshKey == artworkRefreshKey) return
+        artworkRefreshKey = refreshKey
+        artworkRefreshJob?.cancel()
+        artworkRefreshJob = scope.launch {
+            var interval = 400L
+            try {
+                // 不使用固定次数：只要还是同一首歌，就持续等待 QQ 音乐完成
+                // 专辑图缓存；指数退避避免频繁读取 MediaSession。
+                while (isActive) {
+                    delay(interval)
+                    interval = (interval * 1.5f).toLong().coerceAtMost(4_000L)
+                    var loaded = false
+
+                    runCatching {
+                        val controller = android.media.session.MediaController(this@QQMusicListener, token)
+                        val metadata = controller.metadata ?: return@runCatching
+                        val artwork = metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+                            ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_ART)
+                        val refreshedKey = artworkIdentity(metadata, artwork) ?: return@runCatching
+                        if (artworkKey == null || sameArtworkSong(refreshedKey, artworkKey)) {
+                            loaded = applyArtwork(refreshedKey, artwork)
+                        }
+                    }.onFailure { Log.d(TAG, "延迟读取封面失败: ${it.message}") }
+                    if (loaded) return@launch
+                }
+            } finally {
+                if (artworkRefreshKey == refreshKey) artworkRefreshKey = null
+            }
+        }
+    }
+
+    private fun sameArtworkSong(first: String, second: String): Boolean {
+        val firstSong = first.substringBefore("|uri:")
+        val secondSong = second.substringBefore("|uri:")
+        return firstSong == secondSong
     }
 
     private fun logDecision(song: String, artist: String, payplay: Int?, action: String, startedAt: Long) {

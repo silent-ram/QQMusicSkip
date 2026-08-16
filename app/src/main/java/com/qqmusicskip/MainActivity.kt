@@ -29,9 +29,25 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CheckCircle
@@ -73,7 +89,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -82,20 +98,29 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.qqmusicskip.ui.components.AnimatedBackground
 import com.qqmusicskip.ui.components.GlassBottomBar
 import com.qqmusicskip.ui.components.GlassCard
 import com.qqmusicskip.ui.components.GlassNavigationBarItem
 import com.qqmusicskip.ui.components.GlassThickness
 import com.qqmusicskip.ui.components.GlassTopBar
+import com.qqmusicskip.ui.components.GlassRecord
+import com.qqmusicskip.ui.components.LiquidGlassProvider
+import com.qqmusicskip.ui.components.LiquidActionButton
 import com.qqmusicskip.ui.theme.QQmusicskipTheme
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -109,7 +134,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class AppTab(val label: String) { PLAY("播放"), HISTORY("历史"), SETTINGS("设置"), DIAGNOSTICS("诊断") }
-private enum class PayFilter { ALL, FREE, VIP }
+private enum class PayFilter { ALL, FREE, VIP, UNKNOWN }
 private enum class ActionFilter { ALL, AUTO, KEEP, SKIP }
 
 @Composable
@@ -118,54 +143,393 @@ fun MainScreen() {
     val dark = isSystemInDarkTheme()
     var tab by remember { mutableStateOf(AppTab.PLAY) }
     var listenerEnabled by remember { mutableStateOf(isNotificationListenerEnabled(context)) }
-    var tick by remember { mutableIntStateOf(0) }
     var forcedRecovery by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
+        var heartbeat = 0
         if (listenerEnabled) requestListenerRebind(context)
         while (true) {
-            delay(1000); tick++
+            delay(1000)
+            heartbeat++
             listenerEnabled = isNotificationListenerEnabled(context)
-            if (listenerEnabled && !Status.listenerConnected && tick == 5 && !forcedRecovery) {
+            if (listenerEnabled && !Status.listenerConnected && heartbeat == 5 && !forcedRecovery) {
                 forcedRecovery = true
                 forceRestartListenerComponent(context)
-            } else if (listenerEnabled && !Status.listenerConnected && tick % 10 == 0) {
+            } else if (listenerEnabled && !Status.listenerConnected && heartbeat % 10 == 0) {
                 requestListenerRebind(context)
             }
             if (Status.isPlaying && Status.duration > 0) Status.position = (Status.position + 1000).coerceAtMost(Status.duration)
         }
     }
-    @Suppress("UNUSED_VARIABLE") val observe = tick
 
-    Box(Modifier.fillMaxSize()) {
-        AnimatedBackground(cover = Status.cover, dark = dark)
+    val backdrop = rememberLayerBackdrop()
+    LiquidGlassProvider(backdrop) {
+        Box(Modifier.fillMaxSize()) {
+            AnimatedBackground(
+                cover = Status.cover,
+                dark = dark,
+                modifier = Modifier.layerBackdrop(backdrop),
+            )
 
-        Scaffold(
-            containerColor = Color.Transparent,
-            topBar = { GlassTopBar(title = "QQ Music Skip") },
-            bottomBar = {
-                GlassBottomBar {
-                    AppTab.entries.forEach { item ->
-                        val icon = when (item) {
-                            AppTab.PLAY -> Icons.Default.PlayCircle
-                            AppTab.HISTORY -> Icons.Default.History
-                            AppTab.SETTINGS -> Icons.Default.Settings
-                            AppTab.DIAGNOSTICS -> Icons.Default.BugReport
+            Scaffold(
+                containerColor = Color.Transparent,
+                topBar = { GlassTopBar(title = "QQ Music Skip") },
+                bottomBar = {
+                    GlassBottomBar {
+                        AppTab.entries.forEach { item ->
+                            val icon = when (item) {
+                                AppTab.PLAY -> Icons.Default.PlayCircle
+                                AppTab.HISTORY -> Icons.Default.History
+                                AppTab.SETTINGS -> Icons.Default.Settings
+                                AppTab.DIAGNOSTICS -> Icons.Default.BugReport
+                            }
+                            GlassNavigationBarItem(
+                                selected = tab == item,
+                                onClick = { tab = item },
+                                icon = { Icon(icon, null) },
+                                label = item.label,
+                            )
                         }
-                        GlassNavigationBarItem(
-                            selected = tab == item,
-                            onClick = { tab = item },
-                            icon = { Icon(icon, null) },
-                            label = item.label,
-                        )
+                    }
+                },
+            ) { padding ->
+                AnimatedContent(
+                    targetState = tab,
+                    transitionSpec = {
+                        (fadeIn(tween(260)) + scaleIn(initialScale = 0.985f, animationSpec = tween(260)))
+                            .togetherWith(fadeOut(tween(160)))
+                    },
+                    label = "page-transition",
+                ) { selectedTab ->
+                    when (selectedTab) {
+                        AppTab.PLAY -> PlaybackPage(context, listenerEnabled, dark, Modifier.padding(padding))
+                        AppTab.HISTORY -> HistoryPage(context, dark, Modifier.padding(padding))
+                        AppTab.SETTINGS -> SettingsPage(context, listenerEnabled, dark, Modifier.padding(padding))
+                        AppTab.DIAGNOSTICS -> DiagnosticsPage(context, dark, Modifier.padding(padding))
                     }
                 }
-            },
-        ) { padding ->
-            when (tab) {
-                AppTab.PLAY -> PlaybackPage(context, listenerEnabled, dark, Modifier.padding(padding))
-                AppTab.HISTORY -> HistoryPage(context, dark, Modifier.padding(padding))
-                AppTab.SETTINGS -> SettingsPage(context, listenerEnabled, dark, Modifier.padding(padding))
-                AppTab.DIAGNOSTICS -> DiagnosticsPage(context, dark, Modifier.padding(padding))
+            }
+        }
+    }
+}
+
+private enum class PlaybackPanel { SKIPPED, KEPT, FAILED }
+
+@Composable
+private fun ExperimentalPlaybackPage(ctx: Context, listener: Boolean, dark: Boolean, modifier: Modifier) {
+    var panel by remember { mutableStateOf<PlaybackPanel?>(null) }
+    val memoryVersion = SongMemory.version.intValue
+    val records = remember(memoryVersion) { SongMemory.getAll(ctx) }
+    val hasSong = Status.currentSong.isNotBlank()
+    val currentAction = remember(Status.currentSong, Status.currentArtist, memoryVersion) {
+        if (hasSong) SongMemory.getAction(ctx, Status.currentSong, Status.currentArtist) else SongRecord.ACTION_DEFAULT
+    }
+    var targetTiltX by remember { mutableFloatStateOf(0f) }
+    var targetTiltY by remember { mutableFloatStateOf(0f) }
+    val tiltX by animateFloatAsState(
+        targetValue = targetTiltX,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow),
+        label = "player-tilt-x",
+    )
+    val tiltY by animateFloatAsState(
+        targetValue = targetTiltY,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow),
+        label = "player-tilt-y",
+    )
+
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        StatusStrategyCard(listener, AppSettings.enabled(ctx), AppSettings.strategy(ctx), dark)
+
+        GlassCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDrag = { change, amount ->
+                            targetTiltY = (targetTiltY + amount.x * 0.10f).coerceIn(-8f, 8f)
+                            targetTiltX = (targetTiltX - amount.y * 0.08f).coerceIn(-6f, 6f)
+                        },
+                        onDragEnd = { targetTiltX = 0f; targetTiltY = 0f },
+                        onDragCancel = { targetTiltX = 0f; targetTiltY = 0f },
+                    )
+                }
+                .graphicsLayer {
+                    rotationX = tiltX
+                    rotationY = tiltY
+                    cameraDistance = 22f * density
+                },
+            thickness = GlassThickness.Thick,
+            cornerRadius = 28.dp,
+            dark = dark,
+            contentPadding = 12.dp,
+        ) {
+            Box(Modifier.fillMaxWidth().height(270.dp), contentAlignment = Alignment.Center) {
+                GlassRecord(
+                    cover = Status.cover,
+                    playing = Status.isPlaying,
+                    modifier = Modifier.size(250.dp),
+                )
+                Text(
+                    if (Status.isPlaying) "正在播放" else "已暂停",
+                    Modifier.align(Alignment.BottomCenter),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        GlassCard(
+            modifier = Modifier.fillMaxWidth(),
+            thickness = GlassThickness.Default,
+            dark = dark,
+            contentPadding = 14.dp,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        Status.currentSong.ifBlank { "等待 QQ 音乐播放" },
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        Status.currentArtist.ifBlank { "尚未识别到歌手" },
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        Status.currentAlbum.ifBlank { "专辑信息等待通知更新" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.80f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                AssistChip(
+                    onClick = {},
+                    label = { Text(payLabel(Status.currentPayplay)) },
+                    leadingIcon = { Icon(Icons.Default.Verified, null, Modifier.size(16.dp)) },
+                )
+            }
+        }
+
+        GlassCard(
+            modifier = Modifier.fillMaxWidth(),
+            thickness = GlassThickness.Small,
+            dark = dark,
+            contentPadding = 10.dp,
+        ) {
+            Box(Modifier.fillMaxWidth().height(92.dp), contentAlignment = Alignment.Center) {
+                androidx.compose.animation.AnimatedContent(
+                    targetState = if (!AppSettings.lyrics(ctx)) "歌词显示已关闭" else Status.currentLyrics.ifBlank { "暂无歌词，等待 QQ 音乐更新" },
+                    transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(120)) },
+                    label = "lyric-crossfade",
+                ) { lyric ->
+                    Text(
+                        lyric,
+                        Modifier.fillMaxWidth().padding(horizontal = 10.dp),
+                        style = MaterialTheme.typography.titleLarge.copy(lineHeight = 34.sp),
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+
+        GlassCard(
+            modifier = Modifier.fillMaxWidth(),
+            thickness = GlassThickness.Small,
+            dark = dark,
+            contentPadding = 12.dp,
+        ) {
+            if (Status.duration > 0) {
+                LinearProgressIndicator(
+                    progress = { (Status.position.toFloat() / Status.duration).coerceIn(0f, 1f) },
+                    Modifier.fillMaxWidth(),
+                )
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                    Text(formatDuration(Status.position), style = MaterialTheme.typography.labelSmall)
+                    Spacer(Modifier.weight(1f))
+                    Text(formatDuration(Status.duration), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                com.qqmusicskip.ui.components.LiquidActionButton(
+                    onClick = { PlaybackControls.previous?.invoke() },
+                    enabled = PlaybackControls.previous != null,
+                    buttonSize = 48.dp,
+                ) { Icon(Icons.Default.SkipPrevious, "上一首") }
+                Spacer(Modifier.width(18.dp))
+                LiquidActionButton(
+                    onClick = { PlaybackControls.playPause?.invoke() },
+                    enabled = PlaybackControls.playPause != null,
+                    modifier = Modifier,
+                    buttonSize = 64.dp,
+                ) {
+                    Icon(
+                        if (Status.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        if (Status.isPlaying) "暂停" else "播放",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Spacer(Modifier.width(18.dp))
+                LiquidActionButton(
+                    onClick = { PlaybackControls.next?.invoke() },
+                    enabled = PlaybackControls.next != null,
+                    buttonSize = 48.dp,
+                ) { Icon(Icons.Default.SkipNext, "下一首") }
+            }
+        }
+
+        GlassCard(
+            modifier = Modifier.fillMaxWidth(),
+            thickness = GlassThickness.Small,
+            dark = dark,
+            contentPadding = 8.dp,
+        ) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(
+                    SongRecord.ACTION_DEFAULT to "自动",
+                    SongRecord.ACTION_KEEP to "保留",
+                    SongRecord.ACTION_SKIP to "跳过",
+                ).forEach { (action, label) ->
+                    GlassCard(
+                        modifier = Modifier.weight(1f).height(54.dp),
+                        thickness = if (currentAction == action) GlassThickness.Thick else GlassThickness.Small,
+                        cornerRadius = 14.dp,
+                        dark = dark,
+                        contentPadding = 4.dp,
+                        onClick = {
+                            if (hasSong) {
+                                SongMemory.setAction(ctx, Status.currentSong, Status.currentArtist, action)
+                                if (action == SongRecord.ACTION_SKIP) PlaybackControls.next?.invoke()
+                            }
+                        },
+                        enabled = hasSong,
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(label, fontWeight = if (currentAction == action) FontWeight.SemiBold else FontWeight.Normal)
+                        }
+                    }
+                }
+            }
+        }
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PlaybackMetricCard("已跳过", Status.totalSkipped, dark, Modifier.weight(1f), panel == PlaybackPanel.SKIPPED) { panel = if (panel == PlaybackPanel.SKIPPED) null else PlaybackPanel.SKIPPED }
+            PlaybackMetricCard("已保留", Status.totalKept, dark, Modifier.weight(1f), panel == PlaybackPanel.KEPT) { panel = if (panel == PlaybackPanel.KEPT) null else PlaybackPanel.KEPT }
+            PlaybackMetricCard("查询失败", Status.totalFailed, dark, Modifier.weight(1f), panel == PlaybackPanel.FAILED) { panel = if (panel == PlaybackPanel.FAILED) null else PlaybackPanel.FAILED }
+        }
+
+        AnimatedVisibility(
+            visible = panel != null,
+            enter = expandVertically(tween(260)) + fadeIn(tween(220)),
+            exit = shrinkVertically(tween(180)) + fadeOut(tween(120)),
+        ) {
+            val activePanel = panel
+            GlassCard(
+                modifier = Modifier.fillMaxWidth(),
+                thickness = GlassThickness.Default,
+                dark = dark,
+                contentPadding = 12.dp,
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        when (activePanel) {
+                            PlaybackPanel.SKIPPED -> "最近跳过"
+                            PlaybackPanel.KEPT -> "最近保留"
+                            PlaybackPanel.FAILED -> "查询失败"
+                            null -> "记录"
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    val visibleRecords = when (activePanel) {
+                        PlaybackPanel.SKIPPED -> records.filter { it.action == SongRecord.ACTION_SKIP }.take(4)
+                        PlaybackPanel.KEPT -> records.filter { it.action == SongRecord.ACTION_KEEP }.take(4)
+                        PlaybackPanel.FAILED -> emptyList()
+                        null -> emptyList()
+                    }
+                    if (visibleRecords.isEmpty()) {
+                        Text(
+                            if (activePanel == PlaybackPanel.FAILED) "失败记录会保留在诊断页，当前没有可展示的失败歌曲。" else "暂无可展示记录",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else visibleRecords.forEach { record ->
+                        PlaybackRecordRow(ctx, record, dark)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusStrategyCard(listener: Boolean, enabled: Boolean, strategy: SkipStrategy, dark: Boolean) {
+    val ok = listener && enabled && Status.listenerConnected
+    val accent = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+    GlassCard(
+        modifier = Modifier.fillMaxWidth(),
+        thickness = GlassThickness.Small,
+        cornerRadius = 18.dp,
+        dark = dark,
+        contentPadding = 12.dp,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(if (ok) Icons.Default.CheckCircle else Icons.Default.Warning, null, tint = accent)
+            Spacer(Modifier.width(9.dp))
+            Column(Modifier.weight(1f)) {
+                Text(if (ok) "自动跳过正在运行" else "自动跳过未运行", fontWeight = FontWeight.SemiBold, color = accent, maxLines = 1)
+                Text(if (!listener) "需要通知读取权限" else if (!Status.listenerConnected) "正在等待 QQ 音乐通知" else "正在监听 QQ 音乐通知", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text("自动处理", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                Text("策略：${strategyLabel(strategy)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlaybackMetricCard(label: String, value: Int, dark: Boolean, modifier: Modifier, selected: Boolean, onClick: () -> Unit) {
+    GlassCard(
+        modifier = modifier.height(72.dp),
+        thickness = if (selected) GlassThickness.Thick else GlassThickness.Default,
+        cornerRadius = 16.dp,
+        dark = dark,
+        contentPadding = 8.dp,
+        onClick = onClick,
+    ) {
+        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Text(value.toString(), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun PlaybackRecordRow(ctx: Context, record: SongRecord, dark: Boolean) {
+    GlassCard(modifier = Modifier.fillMaxWidth(), thickness = GlassThickness.Small, cornerRadius = 14.dp, dark = dark, contentPadding = 10.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(record.song, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(listOf(record.artist, record.album).filter { it.isNotBlank() }.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                listOf(SongRecord.ACTION_DEFAULT to "自动", SongRecord.ACTION_KEEP to "保留", SongRecord.ACTION_SKIP to "跳过").forEach { (action, label) ->
+                    FilterChip(record.action == action, { SongMemory.setAction(ctx, record.song, record.artist, action) }, { Text(label) })
+                }
             }
         }
     }
@@ -174,100 +538,81 @@ fun MainScreen() {
 @Composable
 private fun PlaybackPage(ctx: Context, listener: Boolean, dark: Boolean, modifier: Modifier) {
     Column(
-        modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        StatusBanner(listener, AppSettings.enabled(ctx), dark)
+        StatusStrategyCard(listener, AppSettings.enabled(ctx), AppSettings.strategy(ctx), dark)
         GlassCard(
             modifier = Modifier.fillMaxWidth(),
             thickness = GlassThickness.Thick,
             dark = dark,
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Status.cover?.let {
-                    Image(
-                        it.asImageBitmap(),
-                        "专辑封面",
-                        Modifier.size(176.dp).clip(RoundedCornerShape(12.dp)),
-                        contentScale = ContentScale.Crop,
+                Box(
+                    Modifier.fillMaxWidth().height(244.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    PlaybackRecord()
+                    AssistChip(
+                        onClick = {},
+                        label = { Text(payLabel(Status.currentPayplay)) },
+                        leadingIcon = { Icon(Icons.Default.Verified, null, Modifier.size(18.dp)) },
+                        modifier = Modifier.align(Alignment.TopEnd),
                     )
-                } ?: Icon(
-                    Icons.Default.MusicNote,
-                    null,
-                    Modifier.size(40.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.height(8.dp))
-                Box(Modifier.fillMaxWidth()) {
-                    Column(
-                        Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text(
-                            Status.currentSong.ifBlank { "等待 QQ 音乐播放" },
-                            style = MaterialTheme.typography.titleLarge,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            Status.currentArtist.ifBlank { "尚未识别到歌曲" },
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (Status.currentAlbum.isNotBlank()) Text(
-                            Status.currentAlbum,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopEnd) {
-                        AssistChip(
-                            onClick = {},
-                            label = { Text(payLabel(Status.currentPayplay)) },
-                            leadingIcon = { Icon(Icons.Default.Verified, null, Modifier.size(18.dp)) },
-                        )
-                    }
                 }
                 Text(
-                    if (!AppSettings.lyrics(ctx)) "歌词显示已关闭"
-                    else Status.currentLyrics.ifBlank { "暂无歌词，等待 QQ 音乐更新" },
-                    Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                    style = MaterialTheme.typography.titleMedium.copy(lineHeight = 28.sp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    Status.currentSong.ifBlank { "等待 QQ 音乐播放" },
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (Status.duration > 0) {
-                    LinearProgressIndicator(
-                        progress = { (Status.position.toFloat() / Status.duration).coerceIn(0f, 1f) },
-                        Modifier.fillMaxWidth(),
-                    )
-                    Row(Modifier.fillMaxWidth()) {
-                        Text(formatDuration(Status.position), style = MaterialTheme.typography.labelSmall)
-                        Spacer(Modifier.weight(1f))
-                        Text(formatDuration(Status.duration), style = MaterialTheme.typography.labelSmall)
-                    }
+                Text(
+                    buildString {
+                        append(Status.currentArtist.ifBlank { "尚未识别到歌曲" })
+                        if (Status.currentAlbum.isNotBlank()) append("  ·  ${Status.currentAlbum}")
+                    },
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(18.dp))
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(84.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CurrentLyric(ctx)
                 }
+                PlaybackProgress()
+                Spacer(Modifier.height(10.dp))
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(22.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton({ PlaybackControls.previous?.invoke() }, enabled = PlaybackControls.previous != null) {
-                        Icon(Icons.Default.SkipPrevious, "上一首")
-                    }
-                    FilledIconButton({ PlaybackControls.playPause?.invoke() }, enabled = PlaybackControls.playPause != null) {
+                    LiquidActionButton(
+                        onClick = { PlaybackControls.previous?.invoke() },
+                        enabled = PlaybackControls.previous != null,
+                        buttonSize = 52.dp,
+                    ) { Icon(Icons.Default.SkipPrevious, "上一首") }
+                    LiquidActionButton(
+                        onClick = { PlaybackControls.playPause?.invoke() },
+                        enabled = PlaybackControls.playPause != null,
+                        modifier = Modifier,
+                    ) {
                         Icon(
                             if (Status.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             if (Status.isPlaying) "暂停" else "播放",
+                            tint = MaterialTheme.colorScheme.primary,
                         )
                     }
-                    IconButton({ PlaybackControls.next?.invoke() }, enabled = PlaybackControls.next != null) {
-                        Icon(Icons.Default.SkipNext, "下一首")
-                    }
+                    LiquidActionButton(
+                        onClick = { PlaybackControls.next?.invoke() },
+                        enabled = PlaybackControls.next != null,
+                        buttonSize = 52.dp,
+                    ) { Icon(Icons.Default.SkipNext, "下一首") }
                 }
             }
         }
@@ -276,7 +621,53 @@ private fun PlaybackPage(ctx: Context, listener: Boolean, dark: Boolean, modifie
             StatCard("已保留", Status.totalKept.toString(), Modifier.weight(1f), dark)
             StatCard("查询失败", Status.totalFailed.toString(), Modifier.weight(1f), dark)
         }
-        StatCard("策略：${strategyLabel(AppSettings.strategy(ctx))}", "自动处理", Modifier.fillMaxWidth(), dark)
+    }
+}
+
+/** 将封面和播放状态限制在唱片自己的重组作用域内，歌词更新不会触发它。 */
+@Composable
+private fun PlaybackRecord() {
+    GlassRecord(
+        cover = Status.cover,
+        playing = Status.isPlaying,
+        modifier = Modifier.size(224.dp),
+    )
+}
+
+@Composable
+private fun CurrentLyric(ctx: Context) {
+    val lyric = if (!AppSettings.lyrics(ctx)) {
+        "歌词显示已关闭"
+    } else {
+        Status.currentLyrics.ifBlank { "暂无歌词，等待 QQ 音乐更新" }
+    }
+    Text(
+        lyric,
+        Modifier
+            .fillMaxWidth()
+            .offset(y = (-12).dp)
+            .padding(horizontal = 8.dp),
+        style = MaterialTheme.typography.titleLarge.copy(lineHeight = 34.sp),
+        textAlign = TextAlign.Center,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+@Composable
+private fun PlaybackProgress() {
+    val duration = Status.duration
+    if (duration <= 0) return
+    val position = Status.position.coerceIn(0L, duration)
+    Spacer(Modifier.height(8.dp))
+    LinearProgressIndicator(
+        progress = { position.toFloat() / duration },
+        Modifier.fillMaxWidth(),
+    )
+    Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+        Text(formatDuration(position), style = MaterialTheme.typography.labelSmall)
+        Spacer(Modifier.weight(1f))
+        Text(formatDuration(duration), style = MaterialTheme.typography.labelSmall)
     }
 }
 
@@ -362,7 +753,7 @@ private fun HistoryPage(ctx: Context, dark: Boolean, modifier: Modifier) {
     val all = remember(version) { SongMemory.getAll(ctx) }
     val songs = all.filter { r ->
         listOf(r.song, r.artist, r.album).any { it.contains(query, true) } &&
-            (pay == PayFilter.ALL || pay == PayFilter.FREE && r.payplay == 0 || pay == PayFilter.VIP && r.payplay == 1) &&
+            (pay == PayFilter.ALL || pay == PayFilter.FREE && r.payplay == 0 || pay == PayFilter.VIP && r.payplay == 1 || pay == PayFilter.UNKNOWN && r.payplay != 0 && r.payplay != 1) &&
             (action == ActionFilter.ALL || action == ActionFilter.AUTO && r.action == SongRecord.ACTION_DEFAULT || action == ActionFilter.KEEP && r.action == SongRecord.ACTION_KEEP || action == ActionFilter.SKIP && r.action == SongRecord.ACTION_SKIP)
     }
     Column(modifier.fillMaxSize().padding(horizontal = 16.dp)) {
@@ -376,12 +767,15 @@ private fun HistoryPage(ctx: Context, dark: Boolean, modifier: Modifier) {
         )
         LazyColumn(horizontalAlignment = Alignment.Start) {
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
                     PayFilter.entries.forEach { f ->
                         FilterChip(
                             pay == f,
                             { pay = f },
-                            { Text(when (f) { PayFilter.ALL -> "全部"; PayFilter.FREE -> "免费"; PayFilter.VIP -> "VIP" }) },
+                            { Text(when (f) { PayFilter.ALL -> "全部"; PayFilter.FREE -> "免费"; PayFilter.VIP -> "VIP"; PayFilter.UNKNOWN -> "未知" }) },
                         )
                     }
                 }
