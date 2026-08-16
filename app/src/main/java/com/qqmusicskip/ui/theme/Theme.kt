@@ -1,58 +1,74 @@
 package com.qqmusicskip.ui.theme
 
-import android.app.Activity
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 
-private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
+private val LightScheme = lightColorScheme(
+    primary = SkyBlue,
+    onPrimary = Color.White,
+    primaryContainer = SkyBlueContainer,
+    onPrimaryContainer = SkyBlueOnContainer,
+    secondary = MintGreen,
+    onSecondary = Color.White,
+    secondaryContainer = MintGreenContainer,
+    onSecondaryContainer = MintGreenOnContainer,
+    tertiary = SoftPurple,
+    onTertiary = Color.White,
+    tertiaryContainer = SoftPurpleContainer,
+    onTertiaryContainer = SoftPurpleOnContainer,
+    background = Color.Transparent,
+    onBackground = InkDark,
+    surface = GlassSurfaceLight,
+    onSurface = InkDark,
+    surfaceVariant = Color(0x59EAF1FF),     // 35% 淡蓝白
+    onSurfaceVariant = InkSoft,
+    outline = GlassOutlineLight,
+    outlineVariant = Color(0x4DEAF1FF),     // 30% 淡蓝白
+    error = Color(0xFFE55C5C),
+    onError = Color.White,
+    errorContainer = Color(0xFFFCE4E4),
+    onErrorContainer = Color(0xFF601410),
 )
 
-private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
-
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
+private val DarkScheme = darkColorScheme(
+    primary = SkyBlueDark,
+    onPrimary = SkyBlueContainerDark,
+    primaryContainer = SkyBlueContainerDark,
+    onPrimaryContainer = SkyBlueDark,
+    secondary = MintGreenDark,
+    onSecondary = MintGreenContainerDark,
+    secondaryContainer = MintGreenContainerDark,
+    onSecondaryContainer = MintGreenDark,
+    tertiary = SoftPurpleDark,
+    onTertiary = Color(0xFF3D1E6B),
+    tertiaryContainer = Color(0xFF5A3587),
+    onTertiaryContainer = SoftPurpleDark,
+    background = Color.Transparent,
+    onBackground = InkLight,
+    surface = GlassSurfaceDark,
+    onSurface = InkLight,
+    surfaceVariant = Color(0x592A2840),    // 35% 深蓝紫
+    onSurfaceVariant = InkLightSoft,
+    outline = GlassOutlineDark,
+    outlineVariant = Color(0x3D2A2840),   // 24% 深蓝紫
+    error = Color(0xFFFF8A80),
+    onError = Color(0xFF601410),
+    errorContainer = Color(0xFF6B1F1F),
+    onErrorContainer = Color(0xFFFFD7D4),
 )
 
 @Composable
 fun QQmusicskipTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = true,
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
-
     MaterialTheme(
-        colorScheme = colorScheme,
+        colorScheme = if (darkTheme) DarkScheme else LightScheme,
         typography = Typography,
-        content = content
+        content = content,
     )
 }

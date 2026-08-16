@@ -62,13 +62,17 @@ object SongMemory {
     fun setAction(ctx: Context, song: String, artist: String, action: String) {
         val prefs = prefs(ctx)
         val key = makeKey(song, artist)
-        val existing = prefs.getString(key, null) ?: return
-        val value = read(existing)
-        if (value != null) {
-            value.put("song", song).put("artist", artist).put("action", action)
-            prefs.edit().putString(key, value.toString()).apply()
-            version.intValue++
+        val existing = prefs.getString(key, null)
+        val value = read(existing) ?: JSONObject().apply {
+            put("song", song)
+            put("artist", artist)
+            put("album", "")
+            put("payplay", -1)
+            put("timestamp", System.currentTimeMillis())
         }
+        value.put("song", song).put("artist", artist).put("action", action).put("timestamp", System.currentTimeMillis())
+        prefs.edit().putString(key, value.toString()).apply()
+        version.intValue++
     }
 
     /**
